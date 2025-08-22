@@ -40,5 +40,7 @@ jobs:
           pip install -r requirements.txt
           
       - name: Execute tests
-        run: pytest
+        run: |
+          source env/bin/activate
+          pytest
           
