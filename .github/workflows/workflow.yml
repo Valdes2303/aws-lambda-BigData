@@ -54,3 +54,6 @@ jobs:
         
       - name: Prueba AWS credentials listar buckets
         run: aws s3 ls 
+      - name: Prueba de zappa deploy
+        run: |
+          zappa update dev
