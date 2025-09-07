@@ -19,7 +19,7 @@
         "timeout_seconds": 300,
         "events": [{
                 "function": "eventBridgeZappa.app",
-                "expression": "cron(0 23 * * ? *)"
+                "expression": "cron(32 5 * * ? *)"
             }]
     }
 }
