@@ -11,11 +11,16 @@
         ],
         "profile_name": "default",
         "project_name": "lambda-project",
-        "runtime": "python3.10",
+        "runtime": "python3.12",
         "s3_bucket": "zappa-ylmwtdbd3",
         "keep_warm": false,
         "apigateway_enabled": false,
         "manage_roles": false,
         "role_name": "LabRole"
+        "timeout_seconds": 300,
+        "events": [{
+                "function": "eventBridgeZappa.app",
+                "expression": "cron(0 23 * * ? * )"
+            }]
     }
 }
