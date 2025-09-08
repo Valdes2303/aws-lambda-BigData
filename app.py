@@ -3,8 +3,8 @@ import json
 import datetime
 import time
 import boto3
+from utils import get_dolar_data
 
-# URL de la API del Banco de la República para el dólar
 URL_API = "https://totoro.banrep.gov.co/estadisticas-economicas/rest/consultaDatosService/consultaMercadoCambiario"
 
 def handler(event, context):
@@ -30,7 +30,7 @@ def handler(event, context):
         
         # 4. Guardar el archivo en S3
         s3 = boto3.client('s3')
-        BUCKET_NAME = "dolar-raw-0723"  # Asegúrate de que este sea el nombre de tu bucket
+        BUCKET_NAME = "dolar-raw-0723" 
         
         # Convertir los datos a formato JSON y guardarlos en S3
         s3.put_object(
