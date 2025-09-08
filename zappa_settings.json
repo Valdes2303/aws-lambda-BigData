@@ -1,6 +1,6 @@
 {
     "dev": {
-        "app_function": "app.f",
+        "app_function": "app.handler",
         "aws_region": "us-east-1",
         "exclude": [
             "boto3",
@@ -11,7 +11,7 @@
         ],
         "project_name": "lambda-project",
         "runtime": "python3.12",
-        "s3_bucket": "zappa-ylmwtdbd3",
+        "s3_bucket": "dolar-raw-0723",
         "keep_warm": false,
         "apigateway_enabled": false,
         "manage_roles": false,
