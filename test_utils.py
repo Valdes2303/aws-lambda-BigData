@@ -1,5 +1,6 @@
 from unittest.mock import patch, MagicMock
 import pytest
+import requests
 from utils import get_dolar_data
 
 # URL de prueba para la simulación
