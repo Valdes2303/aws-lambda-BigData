@@ -82,9 +82,10 @@ def s3_to_rds_handler(event, context):
         
         # 2. Extraer los datos relevantes del JSON
         # Verificamos si la lista tiene al menos un elemento antes de acceder
-        if datos_json and isinstance(datos_json, list):
-            fechahora = datos_json[0].get('fechahora')
-            valor = datos_json[0].get('valor')
+        if datos_json and isinstance(datos_json, list) and len(datos_json) > 0:
+            primer_elemento = datos_json[0]
+            fechahora = primer_elemento.get('fechahora')
+            valor = primer_elemento.get('valor')
         else:
             print("El archivo JSON no contiene datos válidos.")
             return {
