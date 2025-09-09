@@ -18,8 +18,8 @@
         "role_name": "LabRole"
         "timeout_seconds": 300,
         "events": [{
-                "function": "eventBridgeZappa.app",
-                "expression": "cron(40 17 * * ? *)"
+                "function": "app.handler",
+                "expression": "cron(15 2 * * ? *)"
             }]
     }
 }
