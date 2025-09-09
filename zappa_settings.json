@@ -19,7 +19,21 @@
         "timeout_seconds": 300,
         "events": [{
                 "function": "app.handler",
-                "expression": "cron(0 23 * * ? *)"
-            }]
+                "expression": "cron(30 4 * * ? *)"
+            },
+            {
+                "function": "app.s3_to_rds_handler",
+                "event_source": {
+                    "arn": "arn:aws:s3:::dolar-raw-0723",
+                    "events": ["s3:ObjectCreated:*"]
+                }
+            }
+        ],
+        "environment_variables": {
+            "RDS_HOST": "database-1.cvt0hv2uvvou.us-east-1.rds.amazonaws.com",
+            "RDS_USER": "jvaldes",
+            "RDS_PASSWORD": "Jvaldes_2303",
+            "RDS_DB_NAME": "bigdata_parcial"
+        }
     }
 }
