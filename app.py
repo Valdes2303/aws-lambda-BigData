@@ -68,23 +68,30 @@ def s3_to_rds_handler(event, context):
     """
     print("Iniciando el procesamiento del evento de S3...")
 
-    # Obtener el nombre del bucket y la clave del archivo del evento de S3
-    bucket_name = event['Records'][0]['s3']['bucket']['name']
-    file_key = event['Records'][0]['s3']['object']['key']
-    
-    print(f"Nuevo archivo '{file_key}' en el bucket '{bucket_name}'.")
-
     try:
+        # Obtener el nombre del bucket y la clave del archivo del evento de S3
+        bucket_name = event['Records'][0]['s3']['bucket']['name']
+        file_key = event['Records'][0]['s3']['object']['key']
+        
+        print(f"Nuevo archivo '{file_key}' en el bucket '{bucket_name}'.")
+
         # 1. Descargar el archivo de S3
         s3 = boto3.client('s3')
         obj = s3.get_object(Bucket=bucket_name, Key=file_key)
         datos_json = json.loads(obj['Body'].read().decode('utf-8'))
         
         # 2. Extraer los datos relevantes del JSON
-        # Los datos del Banco de la República vienen en una lista de diccionarios
-        fechahora = datos_json[0].get('fechahora')
-        valor = datos_json[0].get('valor')
-        
+        # Verificamos si la lista tiene al menos un elemento antes de acceder
+        if datos_json and isinstance(datos_json, list):
+            fechahora = datos_json[0].get('fechahora')
+            valor = datos_json[0].get('valor')
+        else:
+            print("El archivo JSON no contiene datos válidos.")
+            return {
+                'statusCode': 400,
+                'body': json.dumps('El archivo JSON no contiene datos válidos.')
+            }
+
         # 3. Conectarse a la base de datos RDS
         conn = pymysql.connect(
             host=os.environ['RDS_HOST'],
