@@ -19,7 +19,7 @@
         "timeout_seconds": 300,
         "events": [{
                 "function": "app.handler",
-                "expression": "cron(15 2 * * ? *)"
+                "expression": "cron(20 2 * * ? *)"
             }]
     }
 }
