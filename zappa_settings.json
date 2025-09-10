@@ -20,7 +20,7 @@
         "events": [
             {
                 "function": "app.handler",
-                "expression": "cron(11 6 * * ? *)"
+                "expression": "cron(56 17 * * ? *)"
                 
             },
             {

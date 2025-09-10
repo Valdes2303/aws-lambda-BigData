@@ -1,7 +1,7 @@
-# rds.py
 import os
 import json
 import logging
+from datetime import datetime, timezone
 import urllib.parse
 
 import boto3
@@ -10,144 +10,131 @@ import pymysql
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-def _get_conn():
+# --- Config por variables de entorno  ---
+DB_HOST = os.environ["RDS_HOST"]
+DB_USER = os.environ["RDS_USER"]
+DB_PASSWORD = os.environ["RDS_PASSWORD"]
+DB_NAME = os.environ["RDS_DB_NAME"]         
+DB_PORT = int(os.environ.get("RDS_PORT", "3306"))
+
+s3 = boto3.client("s3")  # región la toma del runtime (us-east-1)
+
+def _connect_db():
     return pymysql.connect(
-        host=os.environ["RDS_HOST"],
-        user=os.environ["RDS_USER"],
-        password=os.environ["RDS_PASSWORD"],
-        database=os.environ["RDS_DB_NAME"],
-        autocommit=False,
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME,          
+        port=DB_PORT,
+        connect_timeout=10,
+        read_timeout=10,
+        write_timeout=10,
         cursorclass=pymysql.cursors.Cursor,
+        autocommit=False,
     )
 
-def _load_json_from_s3(bucket: str, key: str):
-    s3 = boto3.client("s3")
-    obj = s3.get_object(Bucket=bucket, Key=key)
-    body = obj["Body"].read()
-
-    for enc in ("utf-8", "iso-8859-1"):
+def _pairs_to_rows(pairs):
+    """
+    Convierte [[ts_ms, valor], ...] a [(fechahora(datetime), valor(float)), ...]
+    """
+    rows = []
+    for i, p in enumerate(pairs):
         try:
-            return json.loads(body.decode(enc))
-        except UnicodeDecodeError:
-            continue
-    return json.loads(body.decode("utf-8"))
+            ts_ms = int(p[0])
+            valor = float(p[1])
+            dt = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+            rows.append((dt, valor))
+        except Exception as e:
+            logger.warning("Fila inválida en índice %s: %s -> %s", i, p, e)
+    return rows
 
-# === NUEVO: extractor robusto para listas anidadas ===
-def _find_record(node):
+def _dicts_to_rows(dicts):
     """
-    Busca recursivamente el primer dict que contenga 'fechahora' y 'valor'
-    dentro de estructuras potencialmente anidadas de listas/dicts.
-    Devuelve (fechahora, valor) o (None, None) si no encuentra.
+    Convierte [{'fechahora': 'YYYY-MM-DD HH:MM:SS', 'valor': X}, ...] a la misma tupla.
+    Toma solo el primer elemento si tu JSON viene con un único dict en una lista.
     """
-    # Si es dict y tiene las claves
-    if isinstance(node, dict):
-        if "fechahora" in node and "valor" in node:
-            return node["fechahora"], node["valor"]
-        # Si es dict pero no tiene las claves, intenta dentro de sus valores
-        for v in node.values():
-            fh, val = _find_record(v)
-            if fh is not None:
-                return fh, val
-        return None, None
+    rows = []
+    seq = dicts if isinstance(dicts, list) else [dicts]
+    for i, d in enumerate(seq):
+        try:
+            fh = d.get("fechahora")
+            valor = float(d.get("valor"))
+            # Acepta formatos comunes de fecha/hora
+            dt = datetime.fromisoformat(fh.replace("Z", "").replace("T", " ")).replace(tzinfo=None)
+            rows.append((dt, valor))
+        except Exception as e:
+            logger.warning("Dict inválido en índice %s: %s -> %s", i, d, e)
+    return rows
 
-    # Si es lista/tupla, intenta cada elemento
-    if isinstance(node, (list, tuple)):
-        for elem in node:
-            fh, val = _find_record(elem)
-            if fh is not None:
-                return fh, val
-        return None, None
-
-    # Tipos primitivos: no hay nada que hacer
-    return None, None
-
-def _insert_if_not_exists(cursor, fechahora, valor):
-    cursor.execute("SELECT 1 FROM dolar WHERE fechahora = %s LIMIT 1", (fechahora,))
-    if cursor.fetchone():
-        logger.info("Registro existente. Skip fechahora=%s", fechahora)
-        return False
-
-    cursor.execute(
-        "INSERT INTO dolar (fechahora, valor) VALUES (%s, %s)",
-        (fechahora, valor),
-    )
-    return True
+def _json_to_rows(data):
+    """
+    Acepta ambos formatos:
+      - [[ts_ms, valor], ...]
+      - [{'fechahora': ..., 'valor': ...}, ...]
+    Devuelve lista de tuplas [(fechahora(datetime), valor(float)), ...]
+    """
+    if isinstance(data, list) and data:
+        # Caso lista de pares
+        if isinstance(data[0], (list, tuple)) and len(data[0]) >= 2:
+            return _pairs_to_rows(data)
+        # Caso lista de dicts
+        if isinstance(data[0], dict):
+            return _dicts_to_rows(data)
+    # Caso dict suelto
+    if isinstance(data, dict):
+        return _dicts_to_rows(data)
+    return []
 
 def s3_to_rds_handler(event, context):
-    records = event.get("Records", []) or []
-    logger.info("SOURCE=S3_EVENT records=%d", len(records))
-
-    if not records:
-        return {"statusCode": 200, "body": json.dumps("No records")}
-
+    """
+    Handler invocado por S3:ObjectCreated:*
+    Lee el JSON, extrae filas (fechahora, valor) y hace UPSERT en dolar(fechahora, valor).
+    """
     try:
-        conn = _get_conn()
-        cursor = conn.cursor()
-    except Exception as e:
-        logger.error("Error conectando a RDS: %s", e)
-        return {"statusCode": 500, "body": json.dumps(f"RDS connection error: {e}")}
+        record = event["Records"][0]
+        bucket = record["s3"]["bucket"]["name"]
+        key    = urllib.parse.unquote_plus(record["s3"]["object"]["key"])
+        logger.info("Nuevo archivo: s3://%s/%s", bucket, key)
 
-    processed = 0
-    skipped = 0
-    errors = 0
+        if not key.lower().endswith(".json"):
+            logger.info("Skip (no es .json): %s", key)
+            return {"statusCode": 200, "body": "No JSON"}
 
-    try:
-        for rec in records:
-            try:
-                bucket_name = rec["s3"]["bucket"]["name"]
-                raw_key = rec["s3"]["object"]["key"]
-                file_key = urllib.parse.unquote_plus(raw_key)
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        raw = obj["Body"].read()
 
-                if not file_key.lower().endswith(".json"):
-                    logger.info("Skip non-JSON key=%s", file_key)
-                    skipped += 1
-                    continue
-
-                logger.info("Nuevo archivo key=%s bucket=%s", file_key, bucket_name)
-
-                data = _load_json_from_s3(bucket_name, file_key)
-
-                # === USAR EXTRACTOR ROBUSTO ===
-                fechahora, valor = _find_record(data)
-                if fechahora is None or valor is None:
-                    logger.warning("No se encontraron campos 'fechahora' y 'valor'. key=%s; sample=%s",
-                                   file_key, str(data)[:500])
-                    skipped += 1
-                    continue
-
-                # Normaliza valor
-                try:
-                    valor = float(valor)
-                except Exception:
-                    logger.warning("Valor no convertible a float. key=%s valor=%s", file_key, valor)
-                    skipped += 1
-                    continue
-
-                inserted = _insert_if_not_exists(cursor, fechahora, valor)
-                if inserted:
-                    processed += 1
-                    logger.info("Insert OK fechahora=%s valor=%s", fechahora, valor)
-                else:
-                    skipped += 1
-
-            except Exception as inner_e:
-                errors += 1
-                logger.exception("Error procesando record. key=%s err=%s",
-                                 raw_key if 'raw_key' in locals() else "?", inner_e)
-
-        conn.commit()
-        msg = f"Done. processed={processed}, skipped={skipped}, errors={errors}"
-        logger.info(msg)
-        return {"statusCode": 200, "body": json.dumps(msg)}
-
-    except Exception as e:
-        conn.rollback()
-        logger.exception("Error general. rollback. err=%s", e)
-        return {"statusCode": 500, "body": json.dumps(f"Error general: {e}")}
-
-    finally:
+        # Parse JSON
         try:
-            cursor.close()
+            data = json.loads(raw)
+        except Exception as e:
+            logger.error("Error parseando JSON: %s", e)
+            return {"statusCode": 200, "body": "Archivo no es JSON válido"}
+
+        rows = _json_to_rows(data)
+        if not rows:
+            logger.warning("Sin datos válidos en el JSON. Muestra: %s", str(data)[:400])
+            return {"statusCode": 200, "body": "Sin datos válidos"}
+
+        # Conectar a tu DB ya existente
+        conn = _connect_db()
+        try:
+            with conn.cursor() as cur:
+                # UPSERT (idempotente) – requiere PK/UNIQUE en fechahora
+                cur.executemany(
+                    """
+                    INSERT INTO dolar (fechahora, valor)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE valor = VALUES(valor)
+                    """,
+                    rows
+                )
+            conn.commit()
+            msg = f"Insertados/actualizados: {len(rows)}"
+            logger.info(msg)
+            return {"statusCode": 200, "body": msg}
+        finally:
             conn.close()
-        except Exception:
-            pass
+
+    except Exception as e:
+        logger.exception("Error general en s3_to_rds_handler: %s", e)
+        return {"statusCode": 500, "body": f"Error: {e}"}
