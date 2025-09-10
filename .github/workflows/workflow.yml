@@ -41,6 +41,7 @@ jobs:
           
       - name: Execute tests
         run: |
+          cd Punto1
           source env/bin/activate
           pytest
           
@@ -56,6 +57,7 @@ jobs:
         run: aws s3 ls 
       - name: Prueba de zappa deploy
         run: |
+          cd Punto1
           source env/bin/activate
           zappa update dev
           
