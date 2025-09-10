@@ -15,20 +15,28 @@
         "keep_warm": false,
         "apigateway_enabled": false,
         "manage_roles": false,
-        "role_name": "LabRole"
+        "role_name": "LabRole",
         "timeout_seconds": 300,
-        "events": [{
+        "events": [
+            {
                 "function": "app.handler",
-                "expression": "cron(24 5 * * ? *)"
+                "expression": "cron(56 5 * * ? *)"
+                
             },
             {
-                "function": "app.s3_to_rds_handler",
+                "function": "rds.s3_to_rds_handler",
                 "event_source": {
                     "arn": "arn:aws:s3:::dolar-raw-0723",
-                    "events": ["s3:ObjectCreated:*"]
+                    "events": ["s3:ObjectCreated:*"],
+                    "filters": [
+                        { "name": "suffix", "value": ".json" }
+                        ]
+                    
                 }
+                
             }
         ],
+
         "environment_variables": {
             "RDS_HOST": "database-1.cvt0hv2uvvou.us-east-1.rds.amazonaws.com",
             "RDS_USER": "jvaldes",
