@@ -19,7 +19,7 @@
         "timeout_seconds": 300,
         "events": [{
                 "function": "app.handler",
-                "expression": "cron(28 5 * * ? *)"
+                "expression": "cron(0 5 * * ? *)"
             },
             {
                 "function": "app.s3_to_rds_handler",
