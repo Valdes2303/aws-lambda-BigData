@@ -45,7 +45,7 @@ def handler(event, context):
 
         return {
             'statusCode': 200,
-            'body': json.dumps('Datos del dólar descargados y guardados en S3 exitosamente!')
+            'body': json.dumps('Datos del dólar descargados y guardados en S3 exitosamente')
         }
     
     except requests.exceptions.RequestException as e:
